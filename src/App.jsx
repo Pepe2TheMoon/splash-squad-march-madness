@@ -227,26 +227,62 @@ export default function Warroom(){
   const[mcT2,setMcT2]=useState({name:"Team B",seed:8,off:110,def:100,tempo:67,ft:.73,three:.34,reb:1.1,tov:13});
   const[mcN,setMcN]=useState(10000);const[mcRes,setMcRes]=useState(null);
 
-  // Knowledge
-  const[trainKB,setTrainKB]=useState([]);const[theoKB,setTheoKB]=useState([]);
+  // ─── PERSISTENCE HELPERS ─────────────────────────────────────────
+  const loadJSON=(key,fallback)=>{try{const v=localStorage.getItem('mm_'+key);return v?JSON.parse(v):fallback;}catch{return fallback;}};
+  const saveJSON=useCallback((key,val)=>{try{localStorage.setItem('mm_'+key,JSON.stringify(val));}catch(e){console.warn('Storage save failed:',e);}},[]);
+  const clearAllKnowledge=useCallback(()=>{
+    ['trainKB','theoKB','intelFeed','trainLog','theoLog','trainStats','theoStats','vars'].forEach(k=>localStorage.removeItem('mm_'+k));
+    setTrainKB([]);setTheoKB([]);setIntelFeed([]);setTrainLog([]);setTheoLog([]);
+    setTrainCycle(0);setTrainCorrect(0);setTrainTotal(0);
+    setTheoCycle(0);setTheoAgree(0);setTheoDisagree(0);
+  },[]);
+  const exportKnowledge=useCallback(()=>{
+    const data={trainKB,theoKB,intelFeed,trainLog,theoLog,
+      trainStats:{cycle:trainCycle,correct:trainCorrect,total:trainTotal},
+      theoStats:{cycle:theoCycle,agree:theoAgree,disagree:theoDisagree},
+      vars,exportedAt:new Date().toISOString(),version:'v5'};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');
+    a.href=url;a.download=`splash-squad-kb-${new Date().toISOString().slice(0,10)}.json`;a.click();
+    URL.revokeObjectURL(url);
+  },[trainKB,theoKB,intelFeed,trainLog,theoLog,trainCycle,trainCorrect,trainTotal,theoCycle,theoAgree,theoDisagree,vars]);
+
+  // Knowledge (persisted to localStorage)
+  const[trainKB,setTrainKB]=useState(()=>loadJSON('trainKB',[]));
+  const[theoKB,setTheoKB]=useState(()=>loadJSON('theoKB',[]));
 
   // Training
   const[trainAuto,setTrainAuto]=useState(false);const[trainIdx,setTrainIdx]=useState(0);
-  const[trainAgent,setTrainAgent]=useState({s:"idle",c:""});const[trainLog,setTrainLog]=useState([]);
-  const[trainCycle,setTrainCycle]=useState(0);const[trainCorrect,setTrainCorrect]=useState(0);const[trainTotal,setTrainTotal]=useState(0);
+  const[trainAgent,setTrainAgent]=useState({s:"idle",c:""});
+  const[trainLog,setTrainLog]=useState(()=>loadJSON('trainLog',[]));
+  const[trainCycle,setTrainCycle]=useState(()=>loadJSON('trainStats',{cycle:0}).cycle);
+  const[trainCorrect,setTrainCorrect]=useState(()=>loadJSON('trainStats',{correct:0}).correct);
+  const[trainTotal,setTrainTotal]=useState(()=>loadJSON('trainStats',{total:0}).total);
   const trainAutoRef=useRef(false);const trainRunRef=useRef(false);
 
   // Theoretical
   const[theoAuto,setTheoAuto]=useState(false);const[theoAgent,setTheoAgent]=useState({s:"idle",c:""});
   const[theoSim,setTheoSim]=useState(null);const[theoT1,setTheoT1]=useState(0);const[theoT2,setTheoT2]=useState(1);
-  const[theoLog,setTheoLog]=useState([]);const[theoCycle,setTheoCycle]=useState(0);
-  const[theoAgree,setTheoAgree]=useState(0);const[theoDisagree,setTheoDisagree]=useState(0);
+  const[theoLog,setTheoLog]=useState(()=>loadJSON('theoLog',[]));
+  const[theoCycle,setTheoCycle]=useState(()=>loadJSON('theoStats',{cycle:0}).cycle);
+  const[theoAgree,setTheoAgree]=useState(()=>loadJSON('theoStats',{agree:0}).agree);
+  const[theoDisagree,setTheoDisagree]=useState(()=>loadJSON('theoStats',{disagree:0}).disagree);
   const theoAutoRef=useRef(false);const theoRunRef=useRef(false);
 
-  // Live Intel
-  const[intelFeed,setIntelFeed]=useState([]);const[intelAuto,setIntelAuto]=useState(false);
+  // Live Intel (persisted)
+  const[intelFeed,setIntelFeed]=useState(()=>loadJSON('intelFeed',[]));
+  const[intelAuto,setIntelAuto]=useState(false);
   const[intelAgent,setIntelAgent]=useState({s:"idle",c:""});const[intelCycle,setIntelCycle]=useState(0);
   const intelAutoRef=useRef(false);const intelRunRef=useRef(false);
+
+  // ─── AUTO-SAVE EFFECTS ─────────────────────────────────────────
+  useEffect(()=>{if(trainKB.length)saveJSON('trainKB',trainKB);},[trainKB,saveJSON]);
+  useEffect(()=>{if(theoKB.length)saveJSON('theoKB',theoKB);},[theoKB,saveJSON]);
+  useEffect(()=>{if(intelFeed.length)saveJSON('intelFeed',intelFeed.slice(-50));},[intelFeed,saveJSON]);
+  useEffect(()=>{if(trainLog.length)saveJSON('trainLog',trainLog.slice(-100));},[trainLog,saveJSON]);
+  useEffect(()=>{if(theoLog.length)saveJSON('theoLog',theoLog.slice(-100));},[theoLog,saveJSON]);
+  useEffect(()=>{saveJSON('trainStats',{cycle:trainCycle,correct:trainCorrect,total:trainTotal});},[trainCycle,trainCorrect,trainTotal,saveJSON]);
+  useEffect(()=>{saveJSON('theoStats',{cycle:theoCycle,agree:theoAgree,disagree:theoDisagree});},[theoCycle,theoAgree,theoDisagree,saveJSON]);
   // Bracket Day
   const[bracketRunning,setBracketRunning]=useState(false);
   const[bracketResults,setBracketResults]=useState([]);
@@ -746,13 +782,35 @@ RULES:
         {/* ═══ KNOWLEDGE ═══ */}
         {tab==="knowledge"&&<div>
           <div style={{background:"rgba(10,12,18,0.5)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:"8px",padding:"14px",marginBottom:"12px"}}>
-            <div style={{fontSize:"9px",color:"rgba(255,255,255,0.25)",letterSpacing:"2px",marginBottom:"6px"}}>SYSTEM INTELLIGENCE SUMMARY</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
+              <div style={{fontSize:"9px",color:"rgba(255,255,255,0.25)",letterSpacing:"2px"}}>SYSTEM INTELLIGENCE SUMMARY</div>
+              <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                <span style={{fontSize:"7px",color:"#00ff88",letterSpacing:"1px"}}>💾 AUTO-SAVED</span>
+                <button onClick={exportKnowledge} style={{background:"transparent",border:"1px solid rgba(0,255,136,0.2)",borderRadius:"3px",padding:"3px 8px",color:"#00ff88",fontSize:"7px",cursor:"pointer",letterSpacing:"1px"}}>📥 EXPORT JSON</button>
+                <label style={{background:"transparent",border:"1px solid rgba(0,204,255,0.2)",borderRadius:"3px",padding:"3px 8px",color:"#00ccff",fontSize:"7px",cursor:"pointer",letterSpacing:"1px"}}>📤 IMPORT
+                  <input type="file" accept=".json" style={{display:"none"}} onChange={(e)=>{
+                    const f=e.target.files[0];if(!f)return;const r=new FileReader();
+                    r.onload=(ev)=>{try{const d=JSON.parse(ev.target.result);
+                      if(d.trainKB){setTrainKB(p=>[...p,...d.trainKB]);}
+                      if(d.theoKB){setTheoKB(p=>[...p,...d.theoKB]);}
+                      if(d.intelFeed){setIntelFeed(p=>[...p,...d.intelFeed]);}
+                      if(d.trainLog){setTrainLog(p=>[...p,...d.trainLog]);}
+                      if(d.theoLog){setTheoLog(p=>[...p,...d.theoLog]);}
+                      if(d.trainStats){setTrainCycle(p=>p+d.trainStats.cycle);setTrainCorrect(p=>p+d.trainStats.correct);setTrainTotal(p=>p+d.trainStats.total);}
+                      if(d.theoStats){setTheoCycle(p=>p+d.theoStats.cycle);setTheoAgree(p=>p+d.theoStats.agree);setTheoDisagree(p=>p+d.theoStats.disagree);}
+                      alert('Imported '+((d.trainKB?.length||0)+(d.theoKB?.length||0))+' lessons!');
+                    }catch{alert('Invalid JSON file');}};r.readAsText(f);e.target.value='';
+                  }}/>
+                </label>
+                <button onClick={()=>{if(window.confirm('Clear ALL accumulated knowledge? This cannot be undone.'))clearAllKnowledge();}} style={{background:"transparent",border:"1px solid rgba(255,68,68,0.2)",borderRadius:"3px",padding:"3px 8px",color:"#ff4444",fontSize:"7px",cursor:"pointer",letterSpacing:"1px"}}>🗑 CLEAR ALL</button>
+              </div>
+            </div>
             <div style={{fontSize:"10px",color:"rgba(255,255,255,0.5)",lineHeight:1.7}}>
               Knowledge: <span style={{color:"#00ff88",fontWeight:700}}>{totalKB}</span> total — 
               Training: <span style={{color:"#ffd700"}}>{trainKB.length}</span> lessons ({trainTotal>0?((trainCorrect/trainTotal)*100).toFixed(1)+"% accuracy":"untrained"}) — 
               Theoretical: <span style={{color:"#00ccff"}}>{theoKB.length}</span> insights ({(theoAgree+theoDisagree)>0?((theoAgree/(theoAgree+theoDisagree))*100).toFixed(1)+"% MC agreement":"no sims"}) — 
               Intel Reports: <span style={{color:"#ff6600"}}>{intelFeed.length}</span> — 
-              All knowledge is injected into War Room agents during matchup analysis.
+              All knowledge persists across sessions and is injected into War Room agents.
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
